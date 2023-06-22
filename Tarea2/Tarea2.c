@@ -5,7 +5,6 @@
 #include <sys/time.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <semaphore.h>
 
 /*
 
@@ -14,9 +13,11 @@
 
 */
 
+#define NUM_CLIENTS_MAX 100 // Se asume que el codigo da el numero
+
 typedef struct{
     int num; // Numero del barbero
-    bool libre; // Señala si el barbero esta libre
+    bool desocupado; // Estado del barbero
 }Barbero;
 
 typedef struct{
@@ -27,55 +28,55 @@ typedef struct{
 }Cliente;
 
 typedef struct{
-	bool *barberos;
-    int barberosCant;
-	bool *sillasB; // Sillas de barbero
-    int sillasBCant;
-    bool *sillasE; // Sillas de espera
-    int sillasECant;
+	Barbero* barberos;
+    int cantBarberos;
+    int idBarberos;
+    Cliente clientes[NUM_CLIENTS_MAX];
+    int cantClientes;
+    int idCliente;
+    int sillasB;
+    int sillasE;
+    pthread_mutex_t mutex;
+    pthread_cond_t barberoDisponible;
+    pthread_cond_t clienteServido;
 }Barberia;
 
 
 Barberia barberia;
-Cliente clientes[5]; // Esta hecho para el ejemplo del pdf con 5 clientes
-static pthread_mutex_t printf_mutex; //controlador de printf para que la impresion sea en orden
 
-void* fBarber(void* argumentos){
-    pthread_exit(NULL);// se termina la hebra con resultado NULL
-	int i, j;
-
-	Barbero* coordB = (Barbero*) argumentos; 
-	//se hace la transformacion para evitar confuciones y mejor lectura
-
-	pthread_exit(NULL);// se termina la hebra con resultado NULL
+void iniBarberia(Barberia* b, int sillasEspera, int barberosCant, int sillasBarbero) {
+    b->cantClientes = 0;
+    b->sillasE = sillasEspera;
+    b->cantBarberos = barberosCant;
+    b->sillasB = sillasBarbero;
+    pthread_mutex_init(&b->mutex, NULL);
+    pthread_cond_init(&b->barberoDisponible, NULL);
+    pthread_cond_init(&b->clienteServido, NULL);
 }
 
-void* fClientes(void* argumentos){
-	int i, j;
-    int tiempoEspera;
+void destroyBarberia(Barberia* b) {
+    pthread_mutex_destroy(&b->mutex);
+    pthread_cond_destroy(&b->barberoDisponible);
+    pthread_cond_destroy(&b->clienteServido);
+}
 
-	Cliente* coordC = (Cliente*) argumentos; 
-	//se hace la transformacion para evitar confuciones y mejor lectura
-
-
-    if (coordC->entrada == 0){
-        pthread_mutex_lock(&printf_mutex);
-
-        printf("Entra cliente %i a barberia\n", coordC->num);
-        
-        pthread_mutex_unlock(&printf_mutex);
-    }
-    else {
-        pthread_mutex_lock(&printf_mutex);
-
-        sleep( coordC->entrada );
-	    printf("Entra cliente %i a barberia\n", coordC->num);
-    
-        pthread_mutex_unlock(&printf_mutex);
-    }
-
+void* fBarbers(void* argumentos)
+{
 	pthread_exit(NULL);// se termina la hebra con resultado NULL
 
+}
+
+void* fClients(void* argumentos)
+{
+	Barberia* barberia = (Barberia*) argumentos; 
+	//se hace la transformacion para evitar confuciones y mejor lectura
+
+    pthread_mutex_lock(&barberia->mutex);
+
+    printf("Entra cliente %i a barberia\n", barberia->idCliente);
+    pthread_mutex_unlock(&barberia->mutex);
+
+	pthread_exit(NULL);// se termina la hebra con resultado NULL
 }
 
 void coordinador(){
@@ -93,138 +94,87 @@ void coordinador(){
     /*****************************************************************************
     GUARDAR LA INFORMACION DEL TEXTO ABIERTO
     ******************************************************************************/
-    int aux = 0;
-    for(i=0 ; i < 3 ; i++){
-        /*****************************************************************************
-        GUARDAR INFORMACION DE LA BARBERIA
-        ******************************************************************************/
-        fscanf(f, "%i", &aux);
-        if(i == 0){
-            barberia.sillasECant = aux;
-        }
-        else if(i == 1){
-            barberia.barberosCant = aux;
-        }
-        else{
-            barberia.sillasBCant = aux;
-        }
-    }
-    //printf("Hay %i sillas de espera, %i barberos y %i sillas de barbero\n\n", 
-    //            barberia.sillasECant, barberia.barberosCant, barberia.sillasBCant);
+    int sillasEspera, barberosCant, sillasBarbero;
+    fscanf(f, "%d %d %d", &sillasEspera, &barberosCant, &sillasBarbero);
+    
+    Barberia barberia;
+    iniBarberia(&barberia, sillasEspera, barberosCant, sillasBarbero);
+    
+    /*
+    printf("Hay %i sillas de espera, %i barberos y %i sillas de barbero\n\n", 
+                sillasEspera, barberosCant, sillasBarbero);
+    */
 
     /*****************************************************************************
     GUARDAR INFORMACION DE LOS CLIENTES
     ******************************************************************************/
-    for(j=0 ; j < cantClientes ; j++){
-
-        for(i=0 ; i < 3 ; i++){
-            fscanf(f, "%i", &aux);
-        
-            if(i == 0){
-                if(j == 0){
-                    clientes[j].entrada = aux;
-                }
-                else{
-                    clientes[j].entrada = aux + clientes[j-1].entrada;
-                }
-            }
-            else if(i == 1){
-                clientes[j].espera = aux;
-            }
-            else{
-                clientes[j].finalizacion = aux;
-            }
+    for (int i = 0; i < NUM_CLIENTS_MAX; i++) {
+        if (fscanf(f, "%d %d %d", &barberia.clientes[i].entrada, 
+                   &barberia.clientes[i].espera, 
+                   &barberia.clientes[i].finalizacion) != 3)
+        {
+            break;
         }
-        clientes[j].num = j;
-
-        //printf("Entra cliente %i, %is despues del anterior, esta dispuesto a esperar %is y su corte tarda %is\n", 
-        //        clientes[j].num, clientes[j].entrada, clientes[j].espera, clientes[j].finalizacion);
+        barberia.clientes[i].num = i;
+        barberia.cantClientes++;
+        /*
+        printf("Entra cliente %i, %is despues del anterior, esta dispuesto a esperar %is y su corte tarda %is\n", 
+                barberia.clientes[i].num, barberia.clientes[i].entrada, 
+                barberia.clientes[i].espera, barberia.clientes[i].finalizacion);
+        */
     }
-
-
+    
+    
     /*****************************************************************************
     CREACION DE MATRICES DE BARBERIA
     ******************************************************************************/
-    barberia.barberos = (bool*) malloc( barberia.barberosCant * sizeof(bool));
+    barberia.barberos = (Barbero*) malloc( barberia.cantBarberos * sizeof(Barbero));
     if(!barberia.barberos)
     {
         printf("\nError al reservar memoria para los barberos\n");
         return;
     }
     else{
-        for(i=0 ; i < barberia.barberosCant ; i++){
-            barberia.barberos[i] = true; // true = esta disponible 
+        for(i=0 ; i < barberia.cantBarberos ; i++){
+            barberia.barberos[i].desocupado = true;
+            barberia.barberos[i].num = i;
         }
     }
-    barberia.sillasB = (bool*) malloc( barberia.sillasBCant * sizeof(bool));
-    if(!barberia.sillasB)
-    {
-        printf("\nError al reservar memoria para los barberos\n");
-        return;
-    }
-    else{
-        for(i=0 ; i < barberia.sillasBCant ; i++){
-            barberia.sillasB[i] = true; // true = esta disponible 
-        }
-    }
-    barberia.sillasE = (bool*) malloc( barberia.sillasECant * sizeof(bool));
-    if(!barberia.sillasE)
-    {
-        printf("\nError al reservar memoria para los barberos\n");
-        return;
-    }
-    else{
-        for(i=0 ; i < barberia.sillasECant ; i++){
-            barberia.sillasE[i] = true; // true = esta disponible 
-        }
-    }
-
 
     /*****************************************************************************
-    VARIABLES PARA LA SALIDA DEL CODIGO 
+    LA SALIDA DEL CODIGO
     ******************************************************************************/
-    pthread_t barbers[barberia.barberosCant];
-    pthread_t clients[cantClientes];
-    int idBarber = 0;//se utiliza para avanza en el arreglo de hebras
-	int idClient = 0;//se utiliza para avanza en el arreglo de hebras
-	pthread_mutex_init(&printf_mutex, NULL); //se inicializa el controlador del printf
-
     printf("\n");
 
-    /*****************************************************************************
-    LA SALIDA DEL CODIGO 
-    ******************************************************************************/
-    // Crear hilos Barbero
-    for(i = 0 ; i < barberia.barberosCant ; i++){
-		Barbero* barber = calloc(1, sizeof(Barbero));
-		barber->num = i;
-        barber->libre = true;
+    pthread_t barbersHilos[barberosCant];
+    for (int i = 0; i < barberosCant; i++) {
+        pthread_create(&barbersHilos[i], NULL, fBarbers, &barberia);
+    }
 
-		pthread_create(&barbers[idBarber], NULL,(void*) &fBarber, (void*)barber);
-		
-        idBarber++;
+    pthread_t clientsHilos[NUM_CLIENTS_MAX];
+    for (int i = 0; i < barberosCant; i++) {
+        barberia.idBarberos = i;
+        pthread_create(&barbersHilos[i], NULL, fBarbers, &barberia);
+    }
+
+    for (int i = 0; i < barberia.cantClientes; i++) {
+        sleep(barberia.clientes[i].entrada);
+        barberia.idCliente = i;
+        pthread_create(&clientsHilos[i], NULL, fClients, &barberia);
+    }
+
+
+    // Se espera que la salida (return) de los hilos sea NULL
+    for(i=0 ; i< barberosCant ; i++){
+		pthread_join(barbersHilos[i], NULL);
 	}
-
-    // Crear hilos clientes
-    for(i = 0 ; i < cantClientes ; i++){
-		Cliente* client = calloc(1, sizeof(Cliente));
-		client->entrada = clientes[i].entrada;
-		client->espera = clientes[i].espera;
-        client->finalizacion = clientes[i].finalizacion;
-        client->num = clientes[i].num;
-
-		pthread_create(&clients[idClient], NULL,(void*) &fClientes, (void*)client);
-		
-        idClient++;
+	for(i=0 ; i< barberia.cantClientes ; i++){
+		pthread_join(clientsHilos[i], NULL);
 	}
+    
+    destroyBarberia(&barberia);
 
-    for(i=0 ; i< barberia.barberosCant ; i++){ //se espera el termino de todas las hebras con resultado NULL
-		pthread_join(barbers[i], NULL);
-	}
-	for(i=0 ; i< cantClientes ; i++){ //se espera el termino de todas las hebras con resultado NULL
-		pthread_join(clients[i], NULL);
-	}
-
+    printf("\n");
 }
 
 int main (){
