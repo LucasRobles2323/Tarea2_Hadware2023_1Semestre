@@ -9,7 +9,8 @@
 /*
 
 	Lucas Enrique Robles Chavez
-	21.365.017-3
+	
+    21.365.017-3
 
 */
 
@@ -32,7 +33,7 @@ typedef struct{
     int cantBarberos;
     int idBarberos;
     Cliente clientes[NUM_CLIENTS_MAX];
-    int cantClientes;
+    int cantClientes; // cliente dentro de la barberia
     int idCliente;
     int sillasB;
     int sillasE;
@@ -74,13 +75,26 @@ void* fClients(void* argumentos)
     pthread_mutex_lock(&barberia->mutex);
 
     printf("Entra cliente %i a barberia\n", barberia->idCliente);
+
+    pthread_mutex_unlock(&barberia->mutex);
+    
+    pthread_mutex_lock(&barberia->mutex);
+    if (barberia->cantClientes == barberia->sillasE) {
+        printf("Sale cliente %d (no encontró sillas de espera).\n", barberia->idCliente);
+        pthread_mutex_unlock(&barberia->mutex);
+        pthread_exit(NULL);
+    }
+    printf("Cliente %i usa silla de espera %i.\n", barberia->idCliente, barberia->cantClientes);
+    barberia->cantClientes++;
+    pthread_cond_signal(&barberia->barberoDisponible);
+
     pthread_mutex_unlock(&barberia->mutex);
 
 	pthread_exit(NULL);// se termina la hebra con resultado NULL
 }
 
 void coordinador(){
-    int cantClientes = 5, i, j;
+    int cantClientes = 0, i, j;
 
     /*****************************************************************************
     ABRIR TEXTO EN MODO LECTURA
@@ -116,11 +130,11 @@ void coordinador(){
             break;
         }
         barberia.clientes[i].num = i;
-        barberia.cantClientes++;
+        cantClientes++;
         /*
         printf("Entra cliente %i, %is despues del anterior, esta dispuesto a esperar %is y su corte tarda %is\n", 
                 barberia.clientes[i].num, barberia.clientes[i].entrada, 
-                barberia.clientes[i].espera, barberia.clientes[i].finalizacion);
+                barberia.clientes[i].espera, barberia.clientes[i].finalizacion,);
         */
     }
     
@@ -157,7 +171,7 @@ void coordinador(){
         pthread_create(&barbersHilos[i], NULL, fBarbers, &barberia);
     }
 
-    for (int i = 0; i < barberia.cantClientes; i++) {
+    for (int i = 0; i < cantClientes; i++) {
         sleep(barberia.clientes[i].entrada);
         barberia.idCliente = i;
         pthread_create(&clientsHilos[i], NULL, fClients, &barberia);
@@ -168,7 +182,7 @@ void coordinador(){
     for(i=0 ; i< barberosCant ; i++){
 		pthread_join(barbersHilos[i], NULL);
 	}
-	for(i=0 ; i< barberia.cantClientes ; i++){
+	for(i=0 ; i< cantClientes ; i++){
 		pthread_join(clientsHilos[i], NULL);
 	}
     
