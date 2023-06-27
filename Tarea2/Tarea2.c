@@ -9,10 +9,8 @@
 
 /*
 
-	Lucas Enrique Robles Chavez
-	
-    21.365.017-3
-
+	Lucas Enrique Robles Chavez   -   21.365.017-3
+    Gerald Andrés Espinoza Tapia   -   21.085.069-4
 */
 
 typedef struct{
