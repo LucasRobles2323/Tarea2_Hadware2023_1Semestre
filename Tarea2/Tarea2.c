@@ -15,8 +15,6 @@
 
 */
 
-#define NUM_CLIENTS_MAX 100 // Se asume que el codigo da el numero
-
 typedef struct{
     int num; // Numero del cliente
     int entrada; // Tiempo de entrada respecto al inicio del problema.
@@ -28,7 +26,7 @@ typedef struct{
     int cantBarberos;
     int *id_B; // id Barberos
     int idBarbero;
-    Cliente clientes[NUM_CLIENTS_MAX];
+    Cliente clientes[100];
     int *id_C; // id Clientes
     int idCliente;
     int sillasB; // Clientes en las sillas de barbero
@@ -167,7 +165,7 @@ void coordinador(){
     /*****************************************************************************
     GUARDAR INFORMACION DE LOS CLIENTES
     ******************************************************************************/
-    for (int i = 0; i < NUM_CLIENTS_MAX; i++) {
+    for (int i = 0; i < 100; i++) {
         if (fscanf(f, "%d %d %d", &barberia.clientes[i].entrada, 
                    &barberia.clientes[i].espera, 
                    &barberia.clientes[i].finalizacion) != 3)
