@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <semaphore.h>
 #include <sys/time.h>
 #include <pthread.h>
 #include <unistd.h>
@@ -17,11 +18,6 @@
 #define NUM_CLIENTS_MAX 100 // Se asume que el codigo da el numero
 
 typedef struct{
-    int num; // Numero del barbero
-    bool desocupado; // Estado del barbero
-}Barbero;
-
-typedef struct{
     int num; // Numero del cliente
     int entrada; // Tiempo de entrada respecto al inicio del problema.
     int espera; // Tiempo que el cliente esta dispuesto a esperar en la silla de espera.
@@ -29,64 +25,113 @@ typedef struct{
 }Cliente;
 
 typedef struct{
-	Barbero* barberos;
     int cantBarberos;
-    int idBarberos;
+    int *id_B; // id Barberos
+    int idBarbero;
     Cliente clientes[NUM_CLIENTS_MAX];
-    int cantClientes; // cliente dentro de la barberia
+    int *id_C; // id Clientes
     int idCliente;
-    int sillasB;
-    int sillasE;
+    int sillasB; // Clientes en las sillas de barbero
+    int cantSillasB;
+    int sillasE; // Clientes en las sillas de espera
+    int cantSillasE;
     pthread_mutex_t mutex;
-    pthread_cond_t barberoDisponible;
-    pthread_cond_t clienteServido;
+    sem_t *barberoDisponible;
+    sem_t clienteEsperando; // El cliente esperando en la silla barbero
 }Barberia;
 
-
-Barberia barberia;
-
 void iniBarberia(Barberia* b, int sillasEspera, int barberosCant, int sillasBarbero) {
-    b->cantClientes = 0;
-    b->sillasE = sillasEspera;
+    b->sillasE = 0;
+    b->cantSillasE = sillasEspera;
     b->cantBarberos = barberosCant;
-    b->sillasB = sillasBarbero;
+    b->cantSillasB = sillasBarbero;
+    b->sillasB = 0;
     pthread_mutex_init(&b->mutex, NULL);
-    pthread_cond_init(&b->barberoDisponible, NULL);
-    pthread_cond_init(&b->clienteServido, NULL);
+    b->barberoDisponible = (sem_t*) malloc(barberosCant * sizeof(sem_t));
+    for (int i=0; i < barberosCant; i++){
+        sem_init(&b->barberoDisponible[i], 0, 0);
+    }
+    sem_init(&b->clienteEsperando, 0, 0);
 }
 
 void destroyBarberia(Barberia* b) {
     pthread_mutex_destroy(&b->mutex);
-    pthread_cond_destroy(&b->barberoDisponible);
-    pthread_cond_destroy(&b->clienteServido);
+    sem_destroy(&b->clienteEsperando);
 }
 
 void* fBarbers(void* argumentos)
 {
+    Barberia* barberia = (Barberia *)argumentos;
+	int barbero_id = barberia->idBarbero;
+
+    while (1) {
+        // Esperar a que llegue un cliente
+        sem_wait(&barberia->clienteEsperando);
+
+        // Atender al cliente
+        printf("El barbero %d está atendiendo a un cliente.\n", barbero_id);
+        fflush(stdout);
+        sleep(3); // Simulamos el tiempo que tarda el corte de pelo
+
+        // Notificar al cliente que el corte de pelo ha terminado
+        sem_post(&barberia->barberoDisponible[barbero_id]);
+    }
+
 	pthread_exit(NULL);// se termina la hebra con resultado NULL
 
 }
 
 void* fClients(void* argumentos)
 {
-	Barberia* barberia = (Barberia*) argumentos; 
+    Barberia* barberia = (Barberia *)argumentos;
+	int cliente_id = barberia->idCliente;
 	//se hace la transformacion para evitar confuciones y mejor lectura
 
     pthread_mutex_lock(&barberia->mutex);
 
-    printf("Entra cliente %i a barberia\n", barberia->idCliente);
+    printf("Entra cliente %i a barberia\n", cliente_id);
+    fflush(stdout);
 
     pthread_mutex_unlock(&barberia->mutex);
     
     pthread_mutex_lock(&barberia->mutex);
-    if (barberia->cantClientes == barberia->sillasE) {
-        printf("Sale cliente %d (no encontró sillas de espera).\n", barberia->idCliente);
+
+    if (barberia->sillasE == barberia->cantSillasE) {
+        printf("Sale cliente %d (no encontró sillas de espera)\n", cliente_id);
+        fflush(stdout);
         pthread_mutex_unlock(&barberia->mutex);
         pthread_exit(NULL);
     }
-    printf("Cliente %i usa silla de espera %i.\n", barberia->idCliente, barberia->cantClientes);
-    barberia->cantClientes++;
-    pthread_cond_signal(&barberia->barberoDisponible);
+    printf("Cliente %i usa silla de espera %i.\n", cliente_id, barberia->sillasE);
+    fflush(stdout);
+    barberia->sillasE++;
+    
+    pthread_mutex_unlock(&barberia->mutex);
+
+    while (1) {
+        pthread_mutex_lock(&barberia->mutex);
+
+        if (barberia->sillasB < barberia->cantSillasB){
+            break;
+        }
+
+        if (barberia->clientes[cliente_id].espera == 0){
+            printf("Sale cliente %d (espero demasiado)\n", cliente_id);
+            fflush(stdout);
+            barberia->sillasE--;
+            pthread_mutex_unlock(&barberia->mutex);
+            pthread_exit(NULL);
+        }
+
+        pthread_mutex_unlock(&barberia->mutex);
+        sleep(1);
+        barberia->clientes[cliente_id].espera--;
+
+    }
+    printf("Cliente %i usa silla de barbero %i.\n", cliente_id, barberia->sillasB);
+    fflush(stdout);
+    barberia->sillasE--;
+    barberia->sillasB++;
 
     pthread_mutex_unlock(&barberia->mutex);
 
@@ -110,7 +155,7 @@ void coordinador(){
     ******************************************************************************/
     int sillasEspera, barberosCant, sillasBarbero;
     fscanf(f, "%d %d %d", &sillasEspera, &barberosCant, &sillasBarbero);
-    
+
     Barberia barberia;
     iniBarberia(&barberia, sillasEspera, barberosCant, sillasBarbero);
     
@@ -137,23 +182,6 @@ void coordinador(){
                 barberia.clientes[i].espera, barberia.clientes[i].finalizacion,);
         */
     }
-    
-    
-    /*****************************************************************************
-    CREACION DE MATRICES DE BARBERIA
-    ******************************************************************************/
-    barberia.barberos = (Barbero*) malloc( barberia.cantBarberos * sizeof(Barbero));
-    if(!barberia.barberos)
-    {
-        printf("\nError al reservar memoria para los barberos\n");
-        return;
-    }
-    else{
-        for(i=0 ; i < barberia.cantBarberos ; i++){
-            barberia.barberos[i].desocupado = true;
-            barberia.barberos[i].num = i;
-        }
-    }
 
     /*****************************************************************************
     LA SALIDA DEL CODIGO
@@ -161,29 +189,31 @@ void coordinador(){
     printf("\n");
 
     pthread_t barbersHilos[barberosCant];
+    barberia.id_B = (int*) malloc (barberosCant * sizeof(int));
     for (int i = 0; i < barberosCant; i++) {
-        pthread_create(&barbersHilos[i], NULL, fBarbers, &barberia);
+        barberia.id_B[i] = i;
+        barberia.idBarbero = i;
+        pthread_create(&barbersHilos[i], NULL, fBarbers, (void *)&barberia);
     }
 
-    pthread_t clientsHilos[NUM_CLIENTS_MAX];
-    for (int i = 0; i < barberosCant; i++) {
-        barberia.idBarberos = i;
-        pthread_create(&barbersHilos[i], NULL, fBarbers, &barberia);
-    }
-
+    pthread_t clientsHilos[cantClientes];
+    barberia.id_C = (int*) malloc (cantClientes * sizeof(int));
     for (int i = 0; i < cantClientes; i++) {
         sleep(barberia.clientes[i].entrada);
+        barberia.id_C[i] = i;
         barberia.idCliente = i;
-        pthread_create(&clientsHilos[i], NULL, fClients, &barberia);
+        pthread_create(&clientsHilos[i], NULL, fClients, (void *)&barberia);
     }
 
 
-    // Se espera que la salida (return) de los hilos sea NULL
-    for(i=0 ; i< barberosCant ; i++){
-		pthread_join(barbersHilos[i], NULL);
-	}
 	for(i=0 ; i< cantClientes ; i++){
 		pthread_join(clientsHilos[i], NULL);
+	}
+
+    for(i=0 ; i< barberosCant ; i++){
+        pthread_cancel(barbersHilos[i]);
+		pthread_join(barbersHilos[i], NULL);
+        sem_destroy(&barberia.barberoDisponible[i]);
 	}
     
     destroyBarberia(&barberia);
