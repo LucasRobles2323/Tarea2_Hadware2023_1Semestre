@@ -9,7 +9,7 @@
 
 /*
 
-	Lucas Enrique Robles Chavez   -   21.365.017-3
+	Lucas Enrique Robles Chavez    -   21.365.017-3
     Gerald Andrés Espinoza Tapia   -   21.085.069-4
 */
 
@@ -21,10 +21,10 @@ typedef struct{
 }Cliente;
 
 typedef struct{
+    bool *b_Desocupado;
     int cantBarberos;
-    int *id_B; // id Barberos
+    int *idB_idC; // id Barberos
     Cliente clientes[100]; // maximo acepta 100 clientes en los ejemplos
-    int *id_C; // id Clientes
     int sillasB; // Clientes en las sillas de barbero
     int cantSillasB;
     int sillasE; // Clientes en las sillas de espera
@@ -49,14 +49,14 @@ void iniBarberia(Barberia* b,
     pthread_mutex_init(&mutex, NULL);
 
     barberoDisponible = (sem_t*) malloc(barberosCant * sizeof(sem_t));
+    barberoAtiende = (sem_t*) malloc(barberosCant * sizeof(sem_t));
+    b->b_Desocupado = (bool*) malloc(barberosCant * sizeof(bool));
     for (int i=0; i < barberosCant; i++){
         sem_init(&barberoDisponible[i], 0, 0);
-    }
-    barberoAtiende = (sem_t*) malloc(barberosCant * sizeof(sem_t));
-    for (int i=0; i < barberosCant; i++){
         sem_init(&barberoAtiende[i], 0, 0);
+        b->b_Desocupado[i] = true;
     }
-    
+
     sem_init(&clienteEsperando, 0, 0);
     clienteAtendido = (sem_t*) malloc(cantidadCLientes * sizeof(sem_t));
     for (int i=0; i < cantidadCLientes; i++){
@@ -67,6 +67,13 @@ void iniBarberia(Barberia* b,
 void destroy() {
     pthread_mutex_destroy(&mutex);
     sem_destroy(&clienteEsperando);
+
+    free(barberoDisponible);
+    free(barberoAtiende);
+    free(clienteAtendido);
+    free(barberia->idB_idC);
+    free(barberia->b_Desocupado);
+    free(barberia);
 }
 
 void* fBarbers(void* argumentos)
@@ -75,18 +82,13 @@ void* fBarbers(void* argumentos)
     //se hace la transformacion para evitar confuciones y mejor lectura
 
     while (1) {
-        // Esperar a que llegue un cliente
-        sem_wait(&clienteEsperando);
 
-        // Notificar al cliente que el barbero esta disponible
-        sem_post(&barberoDisponible[barbero_id]);
-
-        // Espera a que le digan que atendio al cliente
+        // Espera a que le digan que atienda al cliente
         sem_wait(&barberoAtiende[barbero_id]);
 
         pthread_mutex_lock(&mutex);
 
-        int cliente_id = barberia->id_B[barbero_id];
+        int cliente_id = barberia->idB_idC[barbero_id];
         printf("Barbero %i atiende a cliente %i.\n", barbero_id,  cliente_id);
         fflush(stdout);
 
@@ -94,6 +96,7 @@ void* fBarbers(void* argumentos)
 
         sleep(barberia->clientes[cliente_id].finalizacion);
 
+        // Señala que ya atendio al cliente
         sem_post(&clienteAtendido[cliente_id]);
     }
 
@@ -153,18 +156,21 @@ void* fClients(void* argumentos)
 
     pthread_mutex_unlock(&mutex);
 
-    // Notificar a uno de los barberos que hay un cliente esperando
-    sem_post(&clienteEsperando);
-
-    // Esperar a que un barbero esté disponible
-    int barbero_id;
-    sem_wait(&barberoDisponible[barbero_id]);
-
-    pthread_mutex_lock(&mutex);
-
-    barberia->id_B[barbero_id] = cliente_id;
-
-    pthread_mutex_unlock(&mutex);
+    int barbero_id = -1;
+    while (barbero_id == -1)
+    {
+        pthread_mutex_lock(&mutex);
+        for (int i=0; i < barberia->cantBarberos; i++){
+            
+            if(barberia->b_Desocupado[i]){
+                barbero_id = i;
+                barberia->idB_idC[barbero_id] = cliente_id;
+                barberia->b_Desocupado[i] = false;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&mutex);
+    }
 
     sem_post(&barberoAtiende[barbero_id]);
 
@@ -175,6 +181,7 @@ void* fClients(void* argumentos)
     printf("Sale cliente %i (atendido por completo).\n", cliente_id);
     fflush(stdout);
     barberia->sillasB--;
+    barberia->b_Desocupado[barbero_id] = true;
 
     pthread_mutex_unlock(&mutex);
 
@@ -233,7 +240,7 @@ void coordinador(){
     printf("\n");
 
     pthread_t barbersHilos[barberosCant];
-    barberia->id_B = (int*) calloc (barberosCant, sizeof(int));
+    barberia->idB_idC = (int*) calloc (barberosCant, sizeof(int));
     int barberos[barberosCant];
     for (int i = 0; i < barberosCant; i++) {
         barberos[i] = i;
@@ -241,7 +248,6 @@ void coordinador(){
     }
 
     pthread_t clientsHilos[cantClientes];
-    barberia->id_C = (int*) calloc (cantClientes, sizeof(int));
     int clientes[cantClientes];
     for (int i = 0; i < cantClientes; i++) {
         sleep(barberia->clientes[i].entrada);
@@ -254,7 +260,6 @@ void coordinador(){
 		pthread_join(clientsHilos[i], NULL);
         sem_destroy(&clienteAtendido[i]);
 	}
-
     for(i=0 ; i< barberosCant ; i++){
         pthread_cancel(barbersHilos[i]);
 		pthread_join(barbersHilos[i], NULL);
