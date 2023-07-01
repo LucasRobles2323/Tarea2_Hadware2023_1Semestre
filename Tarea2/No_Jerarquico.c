@@ -8,6 +8,7 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <fcntl.h>
+#include <semaphore.h>
 
 /*
 
@@ -25,6 +26,8 @@ typedef struct{
 }Cliente;
 
 typedef struct{
+    sem_t mutex;
+    int next; // Cliente a imprimir
     bool *b_Desocupado;
     int cantBarberos;
     int *idB_idC; // id Barberos
@@ -44,6 +47,8 @@ void iniBarberia(Barberia* b,
     b->cantBarberos = barberosCant;
     b->cantSillasB = sillasBarbero;
     b->sillasB = 0;
+    b->next = 0;
+    sem_init(&b->mutex, 1, 1);
 
     b->b_Desocupado = (bool*) malloc(barberosCant * sizeof(bool));
     for (int i=0; i < barberosCant; i++){
@@ -55,6 +60,14 @@ void fClients(int argumento1)
 {
     int cliente_id = argumento1;
 	//se hace la transformacion para evitar confuciones y mejor lectura
+
+    while (cliente_id != barberia->next)
+    {
+        sem_post(&barberia->mutex);
+        sleep(0);
+        sem_wait(&barberia->mutex);
+    }
+    
 
     printf("Entra cliente %i a barberia\n", cliente_id);
     fflush(stdout);
@@ -68,6 +81,7 @@ void fClients(int argumento1)
     printf("Cliente %i usa silla de espera %i.\n", cliente_id, barberia->sillasE);
     fflush(stdout);
     barberia->sillasE++;
+    barberia->next++;
 
     return;
 }
