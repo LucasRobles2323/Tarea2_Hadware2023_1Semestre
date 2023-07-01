@@ -27,6 +27,7 @@ typedef struct{
 
 typedef struct{
     sem_t mutex;
+    sem_t mutexBarbero;
     int next; // Cliente a imprimir
     bool *b_Desocupado;
     int cantBarberos;
@@ -49,8 +50,10 @@ void iniBarberia(Barberia* b,
     b->sillasB = 0;
     b->next = 0;
     sem_init(&b->mutex, 1, 1);
+    sem_init(&b->mutexBarbero, 1, 1);
 
     b->b_Desocupado = (bool*) malloc(barberosCant * sizeof(bool));
+    b->idB_idC = (int*) calloc(barberosCant, sizeof(int));
     for (int i=0; i < barberosCant; i++){
         b->b_Desocupado[i] = true;
     }
@@ -75,6 +78,8 @@ void fClients(int argumento1)
     if (barberia->sillasE == barberia->cantSillasE) {
         printf("Sale cliente %d (no encontró sillas de espera)\n", cliente_id);
         fflush(stdout);
+        sem_post(&barberia->mutex);
+        exit(0);
         return;
     }
 
@@ -83,11 +88,8 @@ void fClients(int argumento1)
     barberia->sillasE++;
     barberia->next++;
 
-    sem_post(&barberia->mutex);
-
     while (1) {
         sem_wait(&barberia->mutex);
-
         if (barberia->sillasB < barberia->cantSillasB){
             break;
         }
@@ -98,8 +100,8 @@ void fClients(int argumento1)
             barberia->sillasE--;
             sem_post(&barberia->mutex);
             exit(0);
+            return;
         }
-
         sem_post(&barberia->mutex);
         sleep(1);
         barberia->clientes[cliente_id].espera--;
@@ -112,14 +114,14 @@ void fClients(int argumento1)
     barberia->sillasB++;
 
     sem_post(&barberia->mutex);
+    sleep(0);
 
     int barbero_id = -1;
     while (barbero_id == -1)
     {
         sem_wait(&barberia->mutex);
         for (int i=0; i < barberia->cantBarberos; i++){
-            
-            if(barberia->b_Desocupado[i]){
+            if(barberia->b_Desocupado[i] == true){
                 barbero_id = i;
                 barberia->idB_idC[barbero_id] = cliente_id;
                 barberia->b_Desocupado[i] = false;
@@ -131,8 +133,8 @@ void fClients(int argumento1)
 
     printf("Barbero %i atiende a cliente %i.\n", barbero_id,  cliente_id);
     fflush(stdout);
-    sem_post(&barberia->mutex);
     
+    sleep(0);
     sleep(barberia->clientes[cliente_id].finalizacion);
 
     sem_wait(&barberia->mutex);
@@ -143,8 +145,7 @@ void fClients(int argumento1)
     barberia->b_Desocupado[barbero_id] = true;
 
     sem_post(&barberia->mutex);
-    
-
+    exit(0);
     return;
 }
 
@@ -232,7 +233,6 @@ void coordinador(){
                 sleep(barberia->clientes[i].entrada);
             }
             fClients(i);
-            exit(0);
         }
 
     }
@@ -242,8 +242,9 @@ void coordinador(){
         wait(NULL);
     }
 
-    // Destruir el semaforo
+    // Destruir semaforos
     sem_destroy(&barberia->mutex);
+    sem_destroy(&barberia->mutexBarbero);
 
     // Desmapear y cerrar el áera de memoria compartida
     munmap(barberia, sizeof(Barberia));

@@ -51,6 +51,8 @@ void iniBarberia(Barberia* b,
 
     barberoDisponible = (sem_t*) malloc(barberosCant * sizeof(sem_t));
     barberoAtiende = (sem_t*) malloc(barberosCant * sizeof(sem_t));
+    barberia->idB_idC = (int*) calloc (barberosCant, sizeof(int));
+
     b->b_Desocupado = (bool*) malloc(barberosCant * sizeof(bool));
     for (int i=0; i < barberosCant; i++){
         sem_init(&barberoDisponible[i], 0, 0);
@@ -241,7 +243,6 @@ void coordinador(){
     printf("\n");
 
     pthread_t barbersHilos[barberosCant];
-    barberia->idB_idC = (int*) calloc (barberosCant, sizeof(int));
     int barberos[barberosCant];
     for (int i = 0; i < barberosCant; i++) {
         barberos[i] = i;
