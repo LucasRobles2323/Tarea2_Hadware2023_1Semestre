@@ -83,6 +83,68 @@ void fClients(int argumento1)
     barberia->sillasE++;
     barberia->next++;
 
+    sem_post(&barberia->mutex);
+
+    while (1) {
+        sem_wait(&barberia->mutex);
+
+        if (barberia->sillasB < barberia->cantSillasB){
+            break;
+        }
+
+        if (barberia->clientes[cliente_id].espera == 0){
+            printf("Sale cliente %d (espero demasiado)\n", cliente_id);
+            fflush(stdout);
+            barberia->sillasE--;
+            sem_post(&barberia->mutex);
+            exit(0);
+        }
+
+        sem_post(&barberia->mutex);
+        sleep(1);
+        barberia->clientes[cliente_id].espera--;
+
+    }
+
+    printf("Cliente %i usa silla de barbero %i.\n", cliente_id, barberia->sillasB);
+    fflush(stdout);
+    barberia->sillasE--;
+    barberia->sillasB++;
+
+    sem_post(&barberia->mutex);
+
+    int barbero_id = -1;
+    while (barbero_id == -1)
+    {
+        sem_wait(&barberia->mutex);
+        for (int i=0; i < barberia->cantBarberos; i++){
+            
+            if(barberia->b_Desocupado[i]){
+                barbero_id = i;
+                barberia->idB_idC[barbero_id] = cliente_id;
+                barberia->b_Desocupado[i] = false;
+                break;
+            }
+        }
+        sem_post(&barberia->mutex);
+    }
+
+    printf("Barbero %i atiende a cliente %i.\n", barbero_id,  cliente_id);
+    fflush(stdout);
+    sem_post(&barberia->mutex);
+    
+    sleep(barberia->clientes[cliente_id].finalizacion);
+
+    sem_wait(&barberia->mutex);
+
+    printf("Sale cliente %i (atendido por completo).\n", cliente_id);
+    fflush(stdout);
+    barberia->sillasB--;
+    barberia->b_Desocupado[barbero_id] = true;
+
+    sem_post(&barberia->mutex);
+    
+
     return;
 }
 
@@ -179,6 +241,16 @@ void coordinador(){
     for (int i = 0; i < cantClientes; i++) {
         wait(NULL);
     }
+
+    // Destruir el semaforo
+    sem_destroy(&barberia->mutex);
+
+    // Desmapear y cerrar el áera de memoria compartida
+    munmap(barberia, sizeof(Barberia));
+    close(fd);
+
+    // Eliminar el área de memoria compartida
+    shm_unlink("/dataBarberia");
 
     printf("\n");
 }
