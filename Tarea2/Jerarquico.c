@@ -24,7 +24,7 @@ typedef struct{
 typedef struct{
     bool *b_Desocupado;
     int cantBarberos;
-    int *idB_idC; // id Barberos
+    int *idB_idC; // id Barberos _ id Clientes
     Cliente clientes[100]; // maximo acepta 100 clientes en los ejemplos
     int sillasB; // Clientes en las sillas de barbero
     int cantSillasB;
@@ -160,9 +160,15 @@ void* fClients(void* argumentos)
     pthread_mutex_unlock(&mutex);
 
     int barbero_id = -1;
-    while (barbero_id == -1)
+    while (1)
     {
         pthread_mutex_lock(&mutex);
+
+        if(barbero_id != -1){
+            pthread_mutex_unlock(&mutex);
+            break;
+        }
+
         for (int i=0; i < barberia->cantBarberos; i++){
             
             if(barberia->b_Desocupado[i]){
